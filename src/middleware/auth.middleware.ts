@@ -42,7 +42,6 @@ export const supabaseMiddleware = (): MiddlewareHandler => {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
-            // normalize options to match hono's CookieOptions shape and remove boolean false sameSite
             const normalizedOptions = { ...options } as any
             if (normalizedOptions && normalizedOptions.sameSite === false) {
               delete normalizedOptions.sameSite
@@ -54,6 +53,12 @@ export const supabaseMiddleware = (): MiddlewareHandler => {
     })
 
     c.set('supabase', supabase)
+
+    try {
+      await supabase.auth.getSession()
+    } catch (error) {
+      console.warn('Supabase session refresh failed, proceeding with anonymous context:', error)
+    }
 
     await next()
   }

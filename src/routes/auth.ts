@@ -18,6 +18,76 @@ const GoogleAuthSchema = z.object({
   redirectTo: z.url().optional(),
 })
 
+auth.post('/check-username', async c => {
+  try {
+    console.log('check-username called')
+    const { username } = await c.req.json()
+
+    if (!username || username.length < 3) {
+      return c.json(
+        {
+          available: false,
+          message: 'Username must be at least 3 characters long',
+        },
+        400
+      )
+    }
+
+    const usernameRegex = /^[a-zA-Z0-9_.]+$/
+    if (!usernameRegex.test(username)) {
+      return c.json(
+        {
+          available: false,
+          message: 'Username can only contain letters, numbers, underscores, and dots',
+        },
+        400
+      )
+    }
+
+    const supabase = getSupabase(c)
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('username')
+      .eq('username', username)
+      .single()
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('Supabase error:', error)
+      return c.json(
+        {
+          available: false,
+          message: 'Database error occurred',
+        },
+        500
+      )
+    }
+
+    if (data) {
+      return c.json({
+        available: false,
+        message: `Username '@${username}' is already taken`,
+        username: username,
+      })
+    }
+
+    return c.json({
+      available: true,
+      message: `Username '@${username}' is available!`,
+      username: username,
+    })
+  } catch (error) {
+    console.error('Server error:', error)
+    return c.json(
+      {
+        available: false,
+        message: 'Internal server error',
+      },
+      500
+    )
+  }
+})
+
 auth.post('/google', zValidator('json', GoogleAuthSchema), async c => {
   try {
     const supabase = getSupabase(c)
