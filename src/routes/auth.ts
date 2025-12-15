@@ -17,67 +17,50 @@ const VerifyOtpSchema = z.object({
 const GoogleAuthSchema = z.object({
   redirectTo: z.url().optional(),
 })
+const UsernameCheckSchema = z.object({
+  username: z
+    .string()
+    .min(5, 'Username must be at least 5 characters long')
+    .refine(u => !u.startsWith('.'), {
+      message: 'Username cannot start with a dot',
+    })
+    .regex(/^[a-zA-Z0-9_.]+$/, {
+      message: 'Username can only contain letters, numbers, underscores, and dots',
+    }),
+})
 
-auth.post('/check-username', async c => {
+const SignupSchema = z.object({
+  email: z.email(),
+  password: z.string(),
+  username: z
+    .string()
+    .min(5, 'Username must be at least 5 characters long')
+    .refine(u => !u.startsWith('.'), {
+      message: 'Username cannot start with a dot',
+    })
+    .regex(/^[a-zA-Z0-9_.]+$/, {
+      message: 'Username can only contain letters, numbers, underscores, and dots',
+    }),
+})
+
+auth.post('/check-username', zValidator('json', UsernameCheckSchema), async c => {
   try {
     console.log('check-username called')
     const { username } = await c.req.json()
 
-    if (!username || username.length < 3) {
-      return c.json(
-        {
-          available: false,
-          message: 'Username must be at least 3 characters long',
-        },
-        400
-      )
-    }
-
-    const usernameRegex = /^[a-zA-Z0-9_.]+$/
-    if (!usernameRegex.test(username)) {
-      return c.json(
-        {
-          available: false,
-          message: 'Username can only contain letters, numbers, underscores, and dots',
-        },
-        400
-      )
-    }
-
     const supabase = getSupabase(c)
 
-    const { data, error } = await supabase
-      .from('users')
-      .select('username')
+    const { data } = await supabase
+      .from('username_lookup')
+      .select('id')
       .eq('username', username)
-      .single()
-
-    if (error && error.code !== 'PGRST116') {
-      console.error('Supabase error:', error)
-      return c.json(
-        {
-          available: false,
-          message: 'Database error occurred',
-        },
-        500
-      )
-    }
-
-    if (data) {
-      return c.json({
-        available: false,
-        message: `Username '@${username}' is already taken`,
-        username: username,
-      })
-    }
+      .maybeSingle()
 
     return c.json({
-      available: true,
-      message: `Username '@${username}' is available!`,
-      username: username,
+      available: !data,
     })
-  } catch (error) {
-    console.error('Server error:', error)
+  } catch (err) {
+    console.error('Server error:', err)
     return c.json(
       {
         available: false,
@@ -85,6 +68,37 @@ auth.post('/check-username', async c => {
       },
       500
     )
+  }
+})
+
+auth.post('/signup', zValidator('json', SignupSchema), async c => {
+  try {
+    console.log('signup called')
+    const supabase = getSupabase(c)
+    const { email, password, username } = await c.req.json()
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          username,
+        },
+      },
+    })
+
+    if (error) {
+      return c.json({ error: error.message }, 400)
+    }
+
+    return c.json({
+      user: data.user,
+      session: data.session,
+      requiresEmailVerification: !data.user?.email_confirmed_at,
+    })
+  } catch (err) {
+    console.error(err)
+    return c.json({ error: 'Server error' }, 500)
   }
 })
 
@@ -120,7 +134,7 @@ auth.post('/send-otp', zValidator('json', SendOtpSchema), async c => {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        shouldCreateUser: true,
+        shouldCreateUser: false,
       },
     })
 
