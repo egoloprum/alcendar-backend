@@ -1,53 +1,63 @@
 import { Hono } from 'hono'
-import { getSupabase } from '../middleware/auth.middleware'
-import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
+import { zValidator } from '@hono/zod-validator'
+import { getSupabase } from '../middleware/auth.middleware'
 
 export const auth = new Hono()
 
-const SendOtpSchema = z.object({
-  email: z.email(),
+/* ----------------------------- Schemas ----------------------------- */
+
+const emailSchema = z.string().email()
+const passwordSchema = z.string().min(1)
+
+const usernameSchema = z
+  .string()
+  .min(5, 'Username must be at least 5 characters long')
+  .refine(u => !u.startsWith('.'), {
+    message: 'Username cannot start with a dot',
+  })
+  .regex(/^[a-zA-Z0-9_.]+$/, {
+    message: 'Username can only contain letters, numbers, underscores, and dots',
+  })
+
+const SignupSchema = z.object({
+  email: emailSchema,
+  password: passwordSchema,
 })
 
-const VerifyOtpSchema = z.object({
-  email: z.email(),
+const SigninSchema = z.object({
+  email: emailSchema,
+  password: passwordSchema,
+})
+
+const OtpSendSchema = z.object({
+  email: emailSchema,
+})
+
+const OtpVerifySchema = z.object({
+  email: emailSchema,
   token: z.string().min(1),
 })
 
 const GoogleAuthSchema = z.object({
-  redirectTo: z.url().optional(),
-})
-const UsernameCheckSchema = z.object({
-  username: z
-    .string()
-    .min(5, 'Username must be at least 5 characters long')
-    .refine(u => !u.startsWith('.'), {
-      message: 'Username cannot start with a dot',
-    })
-    .regex(/^[a-zA-Z0-9_.]+$/, {
-      message: 'Username can only contain letters, numbers, underscores, and dots',
-    }),
+  redirectTo: z.string().url().optional(),
 })
 
-const SignupSchema = z.object({
-  email: z.email(),
-  password: z.string(),
-  username: z
-    .string()
-    .min(5, 'Username must be at least 5 characters long')
-    .refine(u => !u.startsWith('.'), {
-      message: 'Username cannot start with a dot',
-    })
-    .regex(/^[a-zA-Z0-9_.]+$/, {
-      message: 'Username can only contain letters, numbers, underscores, and dots',
-    }),
+/* ------------------------- Helper Response ------------------------- */
+
+const authResponse = (data: any) => ({
+  user: data.user,
+  session: data.session,
+  requiresEmailVerification: !data.user?.email_confirmed_at,
 })
 
-auth.post('/check-username', zValidator('json', UsernameCheckSchema), async c => {
-  try {
-    console.log('check-username called')
+/* ------------------------- Username Check -------------------------- */
+
+auth.post(
+  '/check-username',
+  zValidator('json', z.object({ username: usernameSchema })),
+  async c => {
     const { username } = await c.req.json()
-
     const supabase = getSupabase(c)
 
     const { data } = await supabase
@@ -56,124 +66,161 @@ auth.post('/check-username', zValidator('json', UsernameCheckSchema), async c =>
       .eq('username', username)
       .maybeSingle()
 
-    return c.json({
-      available: !data,
-    })
-  } catch (err) {
-    console.error('Server error:', err)
-    return c.json(
-      {
-        available: false,
-        message: 'Internal server error',
-      },
-      500
-    )
+    return c.json({ available: !data })
   }
-})
+)
+
+/* ------------------------------ Signup ----------------------------- */
 
 auth.post('/signup', zValidator('json', SignupSchema), async c => {
+  console.log('signup called!')
+  const supabase = getSupabase(c)
   try {
-    console.log('signup called')
-    const supabase = getSupabase(c)
-    const { email, password, username } = await c.req.json()
+    const { email, password } = c.req.valid('json')
 
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: {
-          username,
-        },
-      },
     })
 
     if (error) {
-      return c.json({ error: error.message }, 400)
+      const status = error.status || 400
+      return c.json(
+        {
+          error: error.name,
+          message: error.message,
+        },
+        status as any
+      )
     }
 
-    return c.json({
-      user: data.user,
-      session: data.session,
-      requiresEmailVerification: !data.user?.email_confirmed_at,
-    })
-  } catch (err) {
-    console.error(err)
-    return c.json({ error: 'Server error' }, 500)
+    return c.json(
+      {
+        user: data.user,
+        session: !!data.session,
+        message: 'Check your email for verification.',
+      },
+      201
+    )
+  } catch (e) {
+    throw e
   }
 })
+
+/* ------------------------------ Signin ----------------------------- */
+
+auth.post('/signin', zValidator('json', SigninSchema), async c => {
+  console.log('signin called!')
+  const supabase = getSupabase(c)
+  const { email, password } = await c.req.json()
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email,
+    password: password,
+  })
+
+  if (error) {
+    const status = error.status || 400
+    return c.json(
+      {
+        error: error.name,
+        message: error.message,
+      },
+      status as any
+    )
+  }
+
+  if (!data.user?.email_confirmed_at) {
+    await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false },
+    })
+
+    return c.json({
+      requiresEmailVerification: true,
+    })
+  }
+
+  return c.json(authResponse(data))
+})
+
+/* ---------------------------- OTP Send ----------------------------- */
+
+auth.post('/otp/send', zValidator('json', OtpSendSchema), async c => {
+  const supabase = getSupabase(c)
+  const { email } = await c.req.json()
+
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: false },
+  })
+
+  if (error) {
+    const status = error.status || 400
+    return c.json(
+      {
+        error: error.name,
+        message: error.message,
+      },
+      status as any
+    )
+  }
+
+  return c.json({ success: true })
+})
+
+/* --------------------------- OTP Verify ---------------------------- */
+
+auth.post('/otp/verify', zValidator('json', OtpVerifySchema), async c => {
+  console.log('OTP verification called!')
+  const supabase = getSupabase(c)
+  const { email, token } = await c.req.json()
+
+  const { data, error } = await supabase.auth.verifyOtp({
+    email,
+    token,
+    type: 'email',
+  })
+
+  if (error) {
+    const status = error.status || 400
+    return c.json(
+      {
+        error: error.name,
+        message: error.message,
+      },
+      status as any
+    )
+  }
+
+  return c.json({
+    success: true,
+    session: data.session,
+    user: data.user,
+  })
+})
+
+/* -------------------------- Google OAuth --------------------------- */
 
 auth.post('/google', zValidator('json', GoogleAuthSchema), async c => {
-  try {
-    const supabase = getSupabase(c)
-    const { redirectTo } = await c.req.json()
+  const supabase = getSupabase(c)
+  const { redirectTo } = await c.req.json()
 
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: redirectTo ? { redirectTo } : undefined,
-    })
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: redirectTo ? { redirectTo } : undefined,
+  })
 
-    if (error) return c.json({ error: error.message }, 400)
-
-    return c.json({ url: data.url })
-  } catch (err) {
-    console.error(err)
-    return c.json({ error: 'Server error' }, 500)
-  }
-})
-
-auth.post('/send-otp', zValidator('json', SendOtpSchema), async c => {
-  try {
-    console.log('send-otp called')
-    const supabase = getSupabase(c)
-    const { email } = await c.req.json()
-
-    if (!email) {
-      return c.json({ error: 'Email is required' }, 400)
-    }
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        shouldCreateUser: false,
+  if (error) {
+    const status = error.status || 400
+    return c.json(
+      {
+        error: error.name,
+        message: error.message,
       },
-    })
-
-    if (error) return c.json({ error: error.message }, 400)
-
-    return c.json({ success: true })
-  } catch (err) {
-    console.error(err)
-    return c.json({ error: 'Server error' }, 500)
+      status as any
+    )
   }
-})
 
-auth.post('/verify-otp', zValidator('json', VerifyOtpSchema), async c => {
-  try {
-    console.log('verify-otp called')
-    const supabase = getSupabase(c)
-    const { email, token } = await c.req.json()
-
-    if (!email || !token) {
-      return c.json({ error: 'Email and token are required' }, 400)
-    }
-
-    const { data, error } = await supabase.auth.verifyOtp({
-      email,
-      token,
-      type: 'email',
-    })
-
-    if (error) {
-      return c.json({ error: error.message }, 400)
-    }
-
-    return c.json({
-      success: true,
-      session: data.session,
-      user: data.user,
-    })
-  } catch (err) {
-    console.error(err)
-    return c.json({ error: 'Server error' }, 500)
-  }
+  return c.json({ url: data.url })
 })
