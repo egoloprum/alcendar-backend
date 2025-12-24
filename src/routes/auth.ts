@@ -1,47 +1,19 @@
 import { Hono } from 'hono'
-import { z } from 'zod'
+
 import { zValidator } from '@hono/zod-validator'
 import { getSupabase } from '../middleware/auth.middleware'
+import {
+  emailSchema,
+  GoogleAuthSchema,
+  OtpSendSchema,
+  OtpVerifySchema,
+  SigninSchema,
+  SignupSchema,
+} from '../lib/schemas'
+
+import { z } from 'zod'
 
 export const auth = new Hono()
-
-/* ----------------------------- Schemas ----------------------------- */
-
-const emailSchema = z.string().email()
-const passwordSchema = z.string().min(1)
-
-const usernameSchema = z
-  .string()
-  .min(5, 'Username must be at least 5 characters long')
-  .refine(u => !u.startsWith('.'), {
-    message: 'Username cannot start with a dot',
-  })
-  .regex(/^[a-zA-Z0-9_.]+$/, {
-    message: 'Username can only contain letters, numbers, underscores, and dots',
-  })
-
-const SignupSchema = z.object({
-  email: emailSchema,
-  password: passwordSchema,
-})
-
-const SigninSchema = z.object({
-  email: emailSchema,
-  password: passwordSchema,
-})
-
-const OtpSendSchema = z.object({
-  email: emailSchema,
-})
-
-const OtpVerifySchema = z.object({
-  email: emailSchema,
-  token: z.string().min(1),
-})
-
-const GoogleAuthSchema = z.object({
-  redirectTo: z.string().url().optional(),
-})
 
 /* ------------------------- Helper Response ------------------------- */
 
@@ -50,25 +22,6 @@ const authResponse = (data: any) => ({
   session: data.session,
   requiresEmailVerification: !data.user?.email_confirmed_at,
 })
-
-/* ------------------------- Username Check -------------------------- */
-
-auth.post(
-  '/check-username',
-  zValidator('json', z.object({ username: usernameSchema })),
-  async c => {
-    const { username } = await c.req.json()
-    const supabase = getSupabase(c)
-
-    const { data } = await supabase
-      .from('username_lookup')
-      .select('id')
-      .eq('username', username)
-      .maybeSingle()
-
-    return c.json({ available: !data })
-  }
-)
 
 /* ------------------------------ Signup ----------------------------- */
 
@@ -153,6 +106,33 @@ auth.post('/otp/send', zValidator('json', OtpSendSchema), async c => {
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: { shouldCreateUser: false },
+  })
+
+  if (error) {
+    const status = error.status || 400
+    return c.json(
+      {
+        error: error.name,
+        message: error.message,
+      },
+      status as any
+    )
+  }
+
+  return c.json({ success: true })
+})
+
+/* --------------------------- OTP Resend ---------------------------- */
+
+auth.post('/otp/resend', zValidator('json', z.object({ email: emailSchema })), async c => {
+  console.log('OTP resend called!')
+
+  const supabase = getSupabase(c)
+  const { email } = await c.req.json()
+
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email,
   })
 
   if (error) {
