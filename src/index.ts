@@ -1,24 +1,21 @@
 import { Hono } from 'hono'
-import { supabaseMiddleware } from './middleware/auth.middleware'
-import { auth } from './routes/auth'
 import { cors } from 'hono/cors'
+import { csrf } from 'hono/csrf'
+import { logger } from 'hono/logger'
+import { secureHeaders } from 'hono/secure-headers'
+import { routes } from './routes'
 
-const app = new Hono()
-app.use(
+const app = new Hono().use(
   '*',
-  supabaseMiddleware(),
   cors({
     origin: '*',
     allowMethods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE'],
-  })
+  }),
+  // csrf(),
+  // secureHeaders(),
+  logger()
 )
 
-app.route('/api/auth', auth)
-
-app.get('/', c => {
-  return c.json({
-    message: 'Welcome to Alcendar!',
-  })
-})
+app.route('/', routes)
 
 export default app

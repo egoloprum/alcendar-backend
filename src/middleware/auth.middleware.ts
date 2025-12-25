@@ -1,65 +1,39 @@
-import { createServerClient, parseCookieHeader } from '@supabase/ssr'
-import { SupabaseClient } from '@supabase/supabase-js'
-import type { Context, MiddlewareHandler } from 'hono'
-import { env } from 'hono/adapter'
-import { setCookie } from 'hono/cookie'
+import type { Context, Next } from 'hono'
+import { getCookie } from 'hono/cookie'
 
-declare module 'hono' {
-  interface ContextVariableMap {
-    supabase: SupabaseClient
-  }
-}
+import { getSupabaseClient } from '../lib/supabase'
+import { setAuthCookies } from '../lib/helpers'
+import { Tokens } from '../lib/constants'
 
-export const getSupabase = (c: Context) => {
-  return c.get('supabase')
-}
+export const authMiddleware = async (c: Context, next: Next) => {
+  const { supabaseAnon, supabaseService } = getSupabaseClient(c)
 
-type SupabaseEnv = {
-  SUPABASE_URL: string
-  SUPABASE_PUBLISHABLE_KEY: string
-}
+  const accessToken = getCookie(c, Tokens.accessToken)
+  const refreshToken = getCookie(c, Tokens.refreshToken)
 
-export const supabaseMiddleware = (): MiddlewareHandler => {
-  return async (c, next) => {
-    const supabaseEnv = env<SupabaseEnv>(c)
-    const supabaseUrl = supabaseEnv.SUPABASE_URL
-    const supabaseAnonKey = supabaseEnv.SUPABASE_PUBLISHABLE_KEY
-
-    if (!supabaseUrl) {
-      throw new Error('SUPABASE_URL missing!')
-    }
-
-    if (!supabaseAnonKey) {
-      throw new Error('SUPABASE_PUBLISHABLE_KEY missing!')
-    }
-
-    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
-      cookies: {
-        getAll() {
-          const parsed = parseCookieHeader(c.req.header('Cookie') ?? '')
-          if (!parsed || parsed.length === 0) return null
-          return parsed.map(({ name, value }) => ({ name, value: value ?? '' }))
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            const normalizedOptions = { ...options } as any
-            if (normalizedOptions && normalizedOptions.sameSite === false) {
-              delete normalizedOptions.sameSite
-            }
-            setCookie(c, name, value, normalizedOptions)
-          })
-        },
-      },
+  if (!accessToken && refreshToken) {
+    const { data, error } = await supabaseService.auth.refreshSession({
+      refresh_token: refreshToken,
     })
 
-    c.set('supabase', supabase)
-
-    try {
-      await supabase.auth.getSession()
-    } catch (error) {
-      console.warn('Supabase session refresh failed, proceeding with anonymous context:', error)
+    if (error || !data.session) {
+      return c.json({ error: 'Session refresh failed' }, 401)
     }
 
-    await next()
+    setAuthCookies(c, data.session.access_token, data.session.refresh_token)
+
+    c.set('user', data.user)
+  } else if (!accessToken || !refreshToken) {
+    return c.json({ error: 'Authorization tokens missing' }, 401)
+  } else {
+    const { data, error } = await supabaseAnon.auth.getUser(accessToken)
+
+    if (error || !data.user) {
+      return c.json({ error: 'Unauthorized' }, 401)
+    }
+
+    c.set('user', data.user)
   }
+
+  await next()
 }
