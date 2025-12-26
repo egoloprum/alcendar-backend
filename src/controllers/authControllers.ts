@@ -53,31 +53,6 @@ export const signup = async (c: Context) => {
 }
 
 export const signout = async (c: Context) => {
-  const auth_header = c.req.header('Authorization')
-
-  if (!auth_header || !auth_header.startsWith('Bearer ')) {
-    return c.json(
-      {
-        error: 'Unauthorized',
-        message: 'No Bearer token provided',
-      },
-      401
-    )
-  }
-
-  const bearer_token = auth_header.split(' ')[1]
-  const access_token_server = getCookie(c, Tokens.accessToken)
-
-  if (bearer_token !== access_token_server) {
-    return c.json(
-      {
-        error: 'Unauthorized',
-        message: 'Invalid token',
-      },
-      401
-    )
-  }
-
   await getSupabaseClient(c).supabaseAnon.auth.signOut()
   deleteCookie(c, Tokens.accessToken)
   deleteCookie(c, Tokens.refreshToken)
@@ -94,7 +69,7 @@ export const refresh = async (c: Context) => {
         error: 'Unauthorized',
         message: 'No refresh token',
       },
-      403
+      401
     )
   }
 
@@ -144,7 +119,7 @@ export const otpVerify = async (c: Context) => {
         error: 'Unauthorized',
         message: error.message,
       },
-      403
+      401
     )
   }
 
@@ -178,7 +153,7 @@ export const otpResend = async (c: Context) => {
         error: 'Unauthorized',
         message: error.message,
       },
-      403
+      401
     )
   }
 

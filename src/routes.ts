@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
 import { otpResend, otpVerify, signin, signout, signup } from './controllers/authControllers'
+import { confirmAge } from './controllers/initialSettingsControllers'
+import { authMiddleware } from './middleware/auth.middleware'
 
 export const routes = new Hono().basePath('/api')
 
@@ -11,9 +13,15 @@ enum AuthRoutes {
   otpResend = '/auth/otp/resend',
 }
 
+enum InitialSettingsRoutes {
+  confirmAge = '/initial-settings/confirm-age',
+}
+
 routes.post(AuthRoutes.signin, signin)
 routes.post(AuthRoutes.signup, signup)
 routes.get(AuthRoutes.signout, signout)
 
 routes.post(AuthRoutes.otpVerify, otpVerify)
 routes.post(AuthRoutes.otpResend, otpResend)
+
+routes.get(InitialSettingsRoutes.confirmAge, authMiddleware, confirmAge)
