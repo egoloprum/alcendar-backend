@@ -9,10 +9,7 @@ import { Tokens } from '../lib/constants'
 export const signin = async (c: Context) => {
   const { supabaseAnon } = getSupabaseClient(c)
 
-  const { email, password } = await c.req.json<{
-    email: string
-    password: string
-  }>()
+  const { email, password } = c.get('validatedBody')
 
   const { data, error } = await supabaseAnon.auth.signInWithPassword({
     email,
@@ -63,21 +60,8 @@ export const signin = async (c: Context) => {
 
 export const signup = async (c: Context) => {
   const { supabaseAnon } = getSupabaseClient(c)
-  const { email, password } = await c.req.json<{
-    email: string
-    password: string
-  }>()
 
-  if (!email || !password) {
-    return responseError(
-      {
-        code: 'VALIDATION_ERROR',
-        message: 'Email and password are required',
-      },
-      'Validation failed',
-      { status: 400 }
-    )
-  }
+  const { email, password } = c.get('validatedBody')
 
   const { data, error } = await supabaseAnon.auth.signUp({
     email: email,
@@ -128,6 +112,7 @@ export const signout = async (c: Context) => {
   return responseSuccess({}, 'Account signed out successfully.', { status: 200 })
 }
 
+// TODO: remove this api
 export const refresh = async (c: Context) => {
   const refresh_token = getCookie(c, Tokens.refreshToken)
 
@@ -185,21 +170,7 @@ export const refresh = async (c: Context) => {
 export const otpVerify = async (c: Context) => {
   const { supabaseAnon } = getSupabaseClient(c)
 
-  const { email, token } = await c.req.json<{
-    email: string
-    token: string
-  }>()
-
-  if (!email || !token) {
-    return responseError(
-      {
-        code: 'VALIDATION_ERROR',
-        message: 'Email and OTP token are required',
-      },
-      'Validation failed',
-      { status: 400 }
-    )
-  }
+  const { email, token } = c.get('validatedBody')
 
   const { data, error } = await supabaseAnon.auth.verifyOtp({
     email,
@@ -277,20 +248,7 @@ export const otpVerify = async (c: Context) => {
 export const otpResend = async (c: Context) => {
   const { supabaseAnon } = getSupabaseClient(c)
 
-  const { email } = await c.req.json<{
-    email: string
-  }>()
-
-  if (!email) {
-    return responseError(
-      {
-        code: 'MISSING_EMAIL',
-        message: 'Email is required',
-      },
-      'Validation failed',
-      { status: 400 }
-    )
-  }
+  const { email } = c.get('validatedBody')
 
   const { error } = await supabaseAnon.auth.resend({
     type: 'signup',

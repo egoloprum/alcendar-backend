@@ -8,7 +8,9 @@ import {
   signup,
 } from './controllers/authControllers'
 import { confirmAge } from './controllers/initialSettingsControllers'
-import { authMiddleware } from './middleware/auth.middleware'
+
+import { OtpSendSchema, OtpVerifySchema, SigninSchema, SignupSchema } from './lib/schemas'
+import { authMiddleware, validate } from './middleware'
 
 export const routes = new Hono().basePath('/api')
 
@@ -25,12 +27,12 @@ enum InitialSettingsRoutes {
   confirmAge = '/initial-settings/confirm-age',
 }
 
-routes.post(AuthRoutes.signin, signin)
-routes.post(AuthRoutes.signup, signup)
+routes.post(AuthRoutes.signin, validate(SigninSchema), signin)
+routes.post(AuthRoutes.signup, validate(SignupSchema), signup)
 routes.get(AuthRoutes.signout, signout)
 
-routes.post(AuthRoutes.otpVerify, otpVerify)
-routes.post(AuthRoutes.otpResend, otpResend)
+routes.post(AuthRoutes.otpVerify, validate(OtpVerifySchema), otpVerify)
+routes.post(AuthRoutes.otpResend, validate(OtpSendSchema), otpResend)
 
 routes.get(AuthRoutes.getCurrentUser, authMiddleware, getCurrentUser)
 
