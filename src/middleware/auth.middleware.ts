@@ -1,50 +1,49 @@
 import type { Context, Next } from 'hono'
-import { deleteCookie, getCookie } from 'hono/cookie'
-
 import { getSupabaseClient } from '../lib/supabase'
-import { setAuthCookies } from '../lib/helpers'
-import { Tokens } from '../lib/constants'
 
 export const authMiddleware = async (c: Context, next: Next) => {
   const { supabaseAnon, supabaseService } = getSupabaseClient(c)
 
-  const accessToken = getCookie(c, Tokens.accessToken)
-  const refreshToken = getCookie(c, Tokens.refreshToken)
+  const authHeader = c.req.header('Authorization')
+  const refreshToken = c.req.header('x-refresh-token')
+  const accessToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
 
   if (!accessToken && !refreshToken) {
-    return c.json({ error: 'Unauthorized', message: 'Authorization required' }, 401)
+    return c.json({ error: 'Unauthorized', message: 'Tokens are required' }, 401)
   }
 
-  if (!accessToken && refreshToken) {
+  if (accessToken) {
+    const { data, error } = await supabaseAnon.auth.getUser(accessToken)
+
+    if (!error && data.user) {
+      c.set('user', data.user)
+      await next()
+      return
+    }
+  }
+
+  if (refreshToken) {
     const { data, error } = await supabaseService.auth.refreshSession({
       refresh_token: refreshToken,
     })
 
-    if (error || !data.session) {
-      deleteCookie(c, Tokens.accessToken)
-      deleteCookie(c, Tokens.refreshToken)
+    if (error || !data.session || !data.user) {
       return c.json(
         {
           error: 'Unauthorized',
-          message: error?.message || 'Error at refreshing session',
+          message: error?.message || 'Invalid refresh token',
         },
         401
       )
     }
 
-    setAuthCookies(c, data.session.access_token, data.session.refresh_token)
+    c.header('x-access-token', data.session.access_token)
+    c.header('x-refresh-token', data.session.refresh_token)
+
     c.set('user', data.user)
     await next()
     return
   }
 
-  const { data, error } = await supabaseAnon.auth.getUser(accessToken)
-
-  if (error || !data.user) {
-    return c.json({ error: 'Unauthorized', message: error?.message }, 403)
-  }
-
-  c.set('user', data.user)
-
-  await next()
+  return c.json({ error: 'Unauthorized', message: 'Authentication failed' }, 401)
 }

@@ -1,18 +1,59 @@
-import type { Context } from 'hono'
-import { setCookie } from 'hono/cookie'
+type ApiResponse<T = unknown> = {
+  success: boolean
+  message: string
+  data?: T
+  error?: {
+    code: string
+    message: string
+    details?: string
+  }
+  timestamp: string
+}
 
-export const setAuthCookies = (c: Context, accessToken: string, refreshToken: string) => {
-  setCookie(c, 'accessToken', accessToken, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'Strict',
-    maxAge: 60 * 60,
+export const responseSuccess = <T>(
+  data?: T,
+  message: string = 'Success',
+  options: {
+    status?: number
+  } = {}
+): Response => {
+  const response: ApiResponse<T> = {
+    success: true,
+    message,
+    data,
+    timestamp: new Date().toISOString(),
+  }
+
+  return new Response(JSON.stringify(response), {
+    status: options.status || 200,
+    headers: {
+      'Content-Type': 'application/json',
+    },
   })
+}
 
-  setCookie(c, 'refreshToken', refreshToken, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'Strict',
-    maxAge: 60 * 60 * 24 * 30,
+export const responseError = (
+  error: {
+    code: string
+    message: string
+    details?: string
+  },
+  message: string = 'Error occurred',
+  options: {
+    status?: number
+  } = {}
+): Response => {
+  const response: ApiResponse = {
+    success: false,
+    message,
+    error,
+    timestamp: new Date().toISOString(),
+  }
+
+  return new Response(JSON.stringify(response), {
+    status: options.status || 400,
+    headers: {
+      'Content-Type': 'application/json',
+    },
   })
 }

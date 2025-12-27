@@ -10,6 +10,8 @@ const app = new Hono().use(
   cors({
     origin: '*',
     allowMethods: ['GET', 'HEAD', 'POST', 'PATCH', 'DELETE'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Refresh-Token'],
+    exposeHeaders: ['X-Access-Token', 'X-Refresh-Token'],
   }),
   // csrf(),
   // secureHeaders(),

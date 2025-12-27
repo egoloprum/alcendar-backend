@@ -1,36 +1,64 @@
 import type { Context } from 'hono'
 import { getSupabaseClient } from '../lib/supabase'
-import { setAuthCookies } from '../lib/helpers'
+import { responseError, responseSuccess } from '../lib/helpers'
 import { deleteCookie, getCookie } from 'hono/cookie'
 import { Tokens } from '../lib/constants'
 
+// TODO: zod validition
+
 export const signin = async (c: Context) => {
-  const { supabaseService } = getSupabaseClient(c)
+  const { supabaseAnon } = getSupabaseClient(c)
 
   const { email, password } = await c.req.json<{
     email: string
     password: string
   }>()
 
-  const { data, error } = await supabaseService.auth.signInWithPassword({
+  const { data, error } = await supabaseAnon.auth.signInWithPassword({
     email,
     password,
   })
 
   if (error || !data) {
-    return c.json({ error: error?.message || 'Error while signing in' }, 400)
+    return responseError(
+      {
+        code: 'AUTH_ERROR',
+        message: error?.message || 'Error while signing in',
+      },
+      'Authentication failed',
+      { status: 400 }
+    )
   }
 
   const accessToken = data.session?.access_token
   const refreshToken = data.session?.refresh_token
 
   if (!accessToken || !refreshToken) {
-    return c.json({ error: 'Error while saving token' }, 500)
+    return responseError(
+      {
+        code: 'TOKEN_ERROR',
+        message: 'Error while saving token',
+      },
+      'Token generation failed',
+      { status: 500 }
+    )
   }
 
-  setAuthCookies(c, accessToken, refreshToken)
+  c.header('x-access-token', accessToken)
+  c.header('x-refresh-token', refreshToken)
 
-  return c.json({ message: 'Success at sign-in', accessToken, refreshToken }, 200)
+  return responseSuccess(
+    {
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+      },
+    },
+    'Successfully signed in',
+    {
+      status: 200,
+    }
+  )
 }
 
 export const signup = async (c: Context) => {
@@ -40,16 +68,56 @@ export const signup = async (c: Context) => {
     password: string
   }>()
 
+  if (!email || !password) {
+    return responseError(
+      {
+        code: 'VALIDATION_ERROR',
+        message: 'Email and password are required',
+      },
+      'Validation failed',
+      { status: 400 }
+    )
+  }
+
   const { data, error } = await supabaseAnon.auth.signUp({
     email: email,
     password: password,
   })
 
-  if (error || !data?.user?.email) {
-    return c.json({ error: error?.message || 'Error while signing up' }, 400)
+  if (error) {
+    return responseError(
+      {
+        code: 'SIGNUP_ERROR',
+        message: error.message,
+        details: error.status?.toString(),
+      },
+      'Signup failed',
+      { status: 400 }
+    )
   }
 
-  return c.json({ message: 'Success at sign-up' }, 200)
+  if (!data?.user) {
+    return responseError(
+      {
+        code: 'USER_CREATION_ERROR',
+        message: 'User creation failed - no user data returned',
+      },
+      'Signup failed',
+      { status: 500 }
+    )
+  }
+
+  if (data.user.confirmed_at) {
+    return responseSuccess({ is_confirmed: true }, 'Account created and confirmed successfully', {
+      status: 201,
+    })
+  }
+
+  return responseSuccess(
+    { is_confirmed: false },
+    'Account created successfully. Please check your email to confirm your account.',
+    { status: 201 }
+  )
 }
 
 export const signout = async (c: Context) => {
@@ -57,19 +125,20 @@ export const signout = async (c: Context) => {
   deleteCookie(c, Tokens.accessToken)
   deleteCookie(c, Tokens.refreshToken)
 
-  return c.json({ message: 'Success at sign-out' }, 200)
+  return responseSuccess({}, 'Account signed out successfully.', { status: 200 })
 }
 
 export const refresh = async (c: Context) => {
   const refresh_token = getCookie(c, Tokens.refreshToken)
 
   if (!refresh_token) {
-    return c.json(
+    return responseError(
       {
-        error: 'Unauthorized',
-        message: 'No refresh token',
+        code: 'NO_REFRESH_TOKEN',
+        message: 'No refresh token found in cookies',
       },
-      401
+      'Authentication required',
+      { status: 401 }
     )
   }
 
@@ -78,12 +147,16 @@ export const refresh = async (c: Context) => {
   })
 
   if (error) {
-    return c.json(
+    return responseError(
       {
-        error: 'Unauthorized',
+        code: 'REFRESH_ERROR',
         message: error.message,
+        details: error.status?.toString(),
       },
-      403
+      'Failed to refresh session',
+      {
+        status: error.status === 400 || error.status === 401 ? 401 : 403,
+      }
     )
   }
 
@@ -91,12 +164,22 @@ export const refresh = async (c: Context) => {
   const refreshToken = data.session?.refresh_token
 
   if (!accessToken || !refreshToken) {
-    return c.json({ error: 'Error while saving token' }, 500)
+    return responseError(
+      {
+        code: 'TOKEN_GENERATION_ERROR',
+        message: 'Failed to generate new tokens',
+      },
+      'Token generation failed',
+      { status: 500 }
+    )
   }
 
-  setAuthCookies(c, accessToken, refreshToken)
+  c.header('x-access-token', accessToken)
+  c.header('x-refresh-token', refreshToken)
 
-  return c.json({ message: 'Success at refreshing token', accessToken, refreshToken }, 200)
+  return responseSuccess({ accessToken, refreshToken }, 'Session refreshed successfully', {
+    status: 200,
+  })
 }
 
 export const otpVerify = async (c: Context) => {
@@ -107,6 +190,17 @@ export const otpVerify = async (c: Context) => {
     token: string
   }>()
 
+  if (!email || !token) {
+    return responseError(
+      {
+        code: 'VALIDATION_ERROR',
+        message: 'Email and OTP token are required',
+      },
+      'Validation failed',
+      { status: 400 }
+    )
+  }
+
   const { data, error } = await supabaseAnon.auth.verifyOtp({
     email,
     token,
@@ -114,12 +208,38 @@ export const otpVerify = async (c: Context) => {
   })
 
   if (error) {
-    return c.json(
+    let errorCode = 'OTP_VERIFICATION_ERROR'
+    let statusCode = 401
+
+    if (error.message?.includes('expired')) {
+      errorCode = 'OTP_EXPIRED'
+      statusCode = 410
+    } else if (error.message?.includes('invalid')) {
+      errorCode = 'INVALID_OTP'
+    } else if (error.message?.includes('rate limit')) {
+      errorCode = 'RATE_LIMITED'
+      statusCode = 429
+    }
+
+    return responseError(
       {
-        error: 'Unauthorized',
+        code: errorCode,
         message: error.message,
+        details: error.status?.toString(),
       },
-      401
+      'OTP verification failed',
+      { status: statusCode }
+    )
+  }
+
+  if (!data.user) {
+    return responseError(
+      {
+        code: 'VERIFICATION_DATA_MISSING',
+        message: 'No verification data returned',
+      },
+      'Verification failed',
+      { status: 500 }
     )
   }
 
@@ -127,12 +247,31 @@ export const otpVerify = async (c: Context) => {
   const refreshToken = data.session?.refresh_token
 
   if (!accessToken || !refreshToken) {
-    return c.json({ error: 'Error while saving token' }, 500)
+    return responseError(
+      {
+        code: 'TOKEN_GENERATION_ERROR',
+        message: 'Failed to generate new tokens',
+      },
+      'Token generation failed',
+      { status: 500 }
+    )
   }
 
-  setAuthCookies(c, accessToken, refreshToken)
+  c.header('x-access-token', accessToken)
+  c.header('x-refresh-token', refreshToken)
 
-  return c.json({ message: 'Success at verifying OTP', accessToken, refreshToken }, 200)
+  return responseSuccess(
+    {
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+      },
+    },
+    'OTP verified successfully',
+    {
+      status: 200,
+    }
+  )
 }
 
 export const otpResend = async (c: Context) => {
@@ -142,20 +281,55 @@ export const otpResend = async (c: Context) => {
     email: string
   }>()
 
+  if (!email) {
+    return responseError(
+      {
+        code: 'MISSING_EMAIL',
+        message: 'Email is required',
+      },
+      'Validation failed',
+      { status: 400 }
+    )
+  }
+
   const { error } = await supabaseAnon.auth.resend({
     type: 'signup',
     email,
   })
 
   if (error) {
-    return c.json(
+    return responseError(
       {
-        error: 'Unauthorized',
+        code: 'RESEND_ERROR',
         message: error.message,
       },
-      401
+      'Failed to resend OTP',
+      { status: 400 }
     )
   }
 
-  return c.json({ message: 'Success at resending OTP' }, 200)
+  return responseSuccess({}, 'OTP resent successfully', { status: 200 })
+}
+
+export const getCurrentUser = async (c: Context) => {
+  const user = c.get('user')
+
+  if (!user) {
+    return responseError(
+      { code: 'UNAUTHORIZED', message: 'User not authenticated' },
+      'Authentication required',
+      { status: 401 }
+    )
+  }
+
+  return responseSuccess(
+    {
+      user: {
+        id: user.id,
+        email: user.email,
+      },
+    },
+    'User retrieved successfully',
+    { status: 200 }
+  )
 }
