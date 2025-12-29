@@ -1,7 +1,8 @@
 import type { Context, Next } from 'hono'
 import { getSupabaseClient } from '../lib/supabase'
+import type { AuthContext } from '../lib/types'
 
-export const authMiddleware = async (c: Context, next: Next) => {
+export const authMiddleware = async (c: Context<AuthContext>, next: Next) => {
   const { supabaseAnon, supabaseService } = getSupabaseClient(c)
 
   const authHeader = c.req.header('Authorization')
@@ -16,7 +17,10 @@ export const authMiddleware = async (c: Context, next: Next) => {
     const { data, error } = await supabaseAnon.auth.getUser(accessToken)
 
     if (!error && data.user) {
-      c.set('user', data.user)
+      c.set('user', {
+        id: data.user.id,
+        email: data.user.email,
+      })
       await next()
       return
     }
@@ -40,7 +44,10 @@ export const authMiddleware = async (c: Context, next: Next) => {
     c.header('x-access-token', data.session.access_token)
     c.header('x-refresh-token', data.session.refresh_token)
 
-    c.set('user', data.user)
+    c.set('user', {
+      id: data.user.id,
+      email: data.user.email,
+    })
     await next()
     return
   }

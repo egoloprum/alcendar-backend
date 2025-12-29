@@ -1,13 +1,39 @@
-type User = {
+// type User = {
+//   id: string
+//   username: string
+//   avatar_url: string
+//   goal: 'reduce' | 'track' | 'sober' | 'explore'
+//   birthday: string
+//   is_legal_age: boolean
+//   timezone: string
+//   created_at: string
+//   updated_at: string
+// }
+
+type CookieUser = {
   id: string
+  email?: string
+}
+
+export type AuthContext = {
+  Variables: {
+    user: CookieUser
+  }
+}
+
+export type User = CookieUser & {
   username: string
   avatar_url: string
-  goal: 'reduce' | 'track' | 'sober' | 'explore'
-  birthday: string
-  is_legal_age: boolean
-  timezone: string
+  is_legal_age: string
   created_at: string
   updated_at: string
+}
+
+export type Connection = {
+  id: string
+  follower_id: string
+  following_id: string
+  created_at: string
 }
 
 type UserSetting = {
