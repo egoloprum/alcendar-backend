@@ -1,8 +1,8 @@
 import type { Context } from 'hono'
 import { getSupabaseClient } from '../lib/supabase'
-import type { User } from '../lib/types'
+import type { AuthContext, User } from '../lib/types'
 import type { PostgrestError } from '@supabase/supabase-js'
-import { responseError } from '../lib/helpers'
+import { responseError, responseSuccess } from '../lib/helpers'
 
 type PublicUser = Pick<User, 'id' | 'username' | 'avatar_url'>
 
@@ -28,7 +28,15 @@ export const getFollowersOfUser = async (c: Context) => {
     )
   }
 
-  return c.json({ followers }, 200)
+  return responseSuccess(
+    {
+      followers,
+    },
+    'Successfully retrieved followers',
+    {
+      status: 200,
+    }
+  )
 }
 
 export const getFollowingOfUser = async (c: Context) => {
@@ -53,17 +61,96 @@ export const getFollowingOfUser = async (c: Context) => {
     )
   }
 
-  return c.json({ followings }, 200)
+  return responseSuccess(
+    {
+      followings,
+    },
+    'Successfully retrieved followings',
+    {
+      status: 200,
+    }
+  )
 }
 
-export const getFollowStatus = async (c: Context) => {
-  return c.json({ message: 'hello world' }, 200)
+export const getFollowStatus = async (c: Context<AuthContext>) => {
+  const current_user = c.get('user')
+  const target_user_id = c.req.param('target_user_id')
+
+  const { supabaseAnon } = getSupabaseClient(c)
+
+  const { data, error } = await supabaseAnon
+    .from('connections')
+    .select('follower_id')
+    .eq('follower_id', current_user.id)
+    .eq('following_id', target_user_id)
+    .single()
+
+  if (error) {
+    return responseError(
+      {
+        code: 'POSTGRES_ERROR',
+        message: error.message,
+      },
+      'Failed to check following status',
+      { status: 500 }
+    )
+  }
+
+  return responseSuccess({ isFollowing: !!data }, 'Successfully retrieved following status', {
+    status: 200,
+  })
 }
 
-export const followUser = async (c: Context) => {
-  return c.json({ message: 'hello world' }, 200)
+export const followUser = async (c: Context<AuthContext>) => {
+  const current_user = c.get('user')
+  const target_user_id = c.req.param('target_user_id')
+
+  const { supabaseAnon } = getSupabaseClient(c)
+
+  const { error } = await supabaseAnon
+    .from('connections')
+    .insert({ follower_id: current_user.id, following_id: target_user_id })
+
+  if (error) {
+    return responseError(
+      {
+        code: 'POSTGRES_ERROR',
+        message: error.message,
+      },
+      'Failed to follow this user',
+      { status: 500 }
+    )
+  }
+
+  return responseSuccess({}, 'Successfully followed this user', {
+    status: 200,
+  })
 }
 
-export const unfollowUser = async (c: Context) => {
-  return c.json({ message: 'hello world' }, 200)
+export const unfollowUser = async (c: Context<AuthContext>) => {
+  const current_user = c.get('user')
+  const target_user_id = c.req.param('target_user_id')
+
+  const { supabaseAnon } = getSupabaseClient(c)
+
+  const { error } = await supabaseAnon
+    .from('connections')
+    .delete()
+    .eq('follower_id', current_user.id)
+    .eq('following_id', target_user_id)
+
+  if (error) {
+    return responseError(
+      {
+        code: 'POSTGRES_ERROR',
+        message: error.message,
+      },
+      'Failed to unfollow this user',
+      { status: 500 }
+    )
+  }
+
+  return responseSuccess({}, 'Successfully unfollowed this user', {
+    status: 200,
+  })
 }
