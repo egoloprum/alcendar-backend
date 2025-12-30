@@ -154,3 +154,36 @@ export const unfollowUser = async (c: Context<AuthContext>) => {
     status: 200,
   })
 }
+
+export const getRecentSearchUser = async (c: Context) => {
+  const current_user = c.get('user')
+
+  const { supabaseAnon } = getSupabaseClient(c)
+
+  const { data: users, error } = (await supabaseAnon
+    .rpc('get_recent_search_users', {
+      target_user_id: current_user,
+    })
+    .returns<PublicUser[]>()) as { data: PublicUser[] | null; error: PostgrestError | null }
+
+  if (error) {
+    return responseError(
+      {
+        code: 'POSTGRES_ERROR',
+        message: error.message,
+      },
+      'Failed to fetch recently searched users',
+      { status: 500 }
+    )
+  }
+
+  return responseSuccess(
+    {
+      users,
+    },
+    'Successfully retrieved recently searched users',
+    {
+      status: 200,
+    }
+  )
+}
