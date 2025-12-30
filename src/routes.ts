@@ -14,6 +14,8 @@ import {
   getFollowStatus,
   followUser,
   unfollowUser,
+  getRecentSearchUser,
+  getSearchUser,
 } from './controllers/userControllers'
 
 import { OtpSendSchema, OtpVerifySchema, SigninSchema, SignupSchema } from './lib/schemas'
@@ -38,6 +40,8 @@ enum UsersRoutes {
   followAction = '/users/:target_user_id/follow',
   userFollowers = '/users/:user_id/followers',
   userFollowing = '/users/:user_id/following',
+  recentlySearchedUser = '/users/recent-searches',
+  searchedUser = '/users/search',
 }
 
 routes.post(AuthRoutes.signin, validate(SigninSchema), signin)
@@ -54,3 +58,6 @@ routes.get(UsersRoutes.userFollowing, authMiddleware, getFollowingOfUser)
 routes.get(UsersRoutes.followAction, authMiddleware, getFollowStatus)
 routes.post(UsersRoutes.followAction, authMiddleware, followUser)
 routes.delete(UsersRoutes.followAction, authMiddleware, unfollowUser)
+
+routes.get(UsersRoutes.recentlySearchedUser, authMiddleware, getRecentSearchUser)
+routes.get(UsersRoutes.searchedUser, authMiddleware, getSearchUser)

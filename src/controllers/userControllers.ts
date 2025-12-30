@@ -162,7 +162,7 @@ export const getRecentSearchUser = async (c: Context) => {
 
   const { data: users, error } = (await supabaseAnon
     .rpc('get_recent_search_users', {
-      target_user_id: current_user,
+      target_user_id: current_user.id,
     })
     .returns<PublicUser[]>()) as { data: PublicUser[] | null; error: PostgrestError | null }
 
@@ -182,6 +182,47 @@ export const getRecentSearchUser = async (c: Context) => {
       users,
     },
     'Successfully retrieved recently searched users',
+    {
+      status: 200,
+    }
+  )
+}
+
+export const getSearchUser = async (c: Context) => {
+  const searchTerm = c.req.query('q')
+
+  if (!searchTerm) {
+    return responseError(
+      { code: 'BAD REQUEST', message: 'Search param is missing' },
+      'Search param required',
+      { status: 400 }
+    )
+  }
+
+  const { supabaseAnon } = getSupabaseClient(c)
+
+  const { data: users, error } = (await supabaseAnon
+    .from('users')
+    .select('id, username, avatar_url')
+    .ilike('username', `%${searchTerm}%`)
+    .returns<PublicUser[]>()) as { data: PublicUser[] | null; error: PostgrestError | null }
+
+  if (error) {
+    return responseError(
+      {
+        code: 'POSTGRES_ERROR',
+        message: error.message,
+      },
+      'Failed to fetch searched users',
+      { status: 500 }
+    )
+  }
+
+  return responseSuccess(
+    {
+      users,
+    },
+    'Successfully retrieved searched users',
     {
       status: 200,
     }
